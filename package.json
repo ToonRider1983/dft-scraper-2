@@ -1,0 +1,36 @@
+{
+  "name": "dft-scraper",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs",
+    "debug": "nodemon --stdout index.mjs",
+    "start_pat": "node pat.mjs",
+    "debug_pat": "nodemon --stdout pat.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.13.2",
+    "axios-cookiejar-support": "^6.0.5",
+    "bottleneck": "^2.19.5",
+    "cheerio": "^1.1.2",
+    "chromium": "^3.0.3",
+    "dotenv": "^17.2.3",
+    "exceljs": "^4.4.0",
+    "js-guid": "^1.0.2",
+    "nodemon": "^3.1.11",
+    "pino": "^10.2.0",
+    "playwright": "^1.57.0",
+    "playwright-extra": "^4.3.6",
+    "prompt-sync": "^4.2.0",
+    "puppeteer": "^24.35.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "tough-cookie": "^6.0.0",
+    "update": "^0.7.4",
+    "xlsx": "^0.18.5"
+  }
+}

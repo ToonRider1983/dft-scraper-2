@@ -1,0 +1,6 @@
+{
+  "watch": ["*.mjs", "src"],
+  "ext": "mjs,json",
+  "exec": "node --inspect index.mjs",
+  "stdout": true
+}
