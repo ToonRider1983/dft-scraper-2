@@ -6,7 +6,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import xlsx from 'xlsx'
 import dotenv from "dotenv";
-import guid from 'js-guid'
 
 dotenv.config();
 
@@ -14,8 +13,10 @@ dotenv.config();
 chromium.use(stealth());
 
 // ===== CONFIGURATION =====
-const LOGIN_URL = process.env.LOGIN_URL || "https://www.dataforthai.com/member/login";
-const BASE_URL = process.env.BASE_URL || "https://www.dataforthai.com/company/";
+const login_url = process.env.LOGIN_URL || "https://www.dataforthai.com/member/login";
+const base_url = process.env.BASE_URL || "https://www.dataforthai.com/company/";
+const start_index = process.env.START_INDEX;
+const end_index =  process.env.END_INDEX;
 
 // YOUR CREDENTIALS HERE
 const USERNAME = "freeman112002@hotmail.com";
@@ -48,13 +49,12 @@ async function waitForCloudflare(page, timeout = 60000) {
   return false;
 }
 
-
 // ===== LOGIN FUNCTION =====
 async function login(page) {
   console.log("Navigating to login page...");
 
   try {
-    await page.goto(LOGIN_URL, {
+    await page.goto(login_url, {
       waitUntil: "domcontentloaded",
       timeout: 10000
     });
@@ -132,225 +132,53 @@ async function login(page) {
   }
 }
 
-// ===== SCRAPING FUNCTION =====
-async function scrapeCompanies(page) {
-  const allCompanies = [];
+// ===== SCRAPING FUNCTION ======
+async function scrapeCompaniesFromData(data, startIndex, endIndex, page) {
 
-  for (let pageNum = START_PAGE; pageNum <= END_PAGE; pageNum++) {
-    const url = pageNum === 1 ? BASE_URL : `${BASE_URL}?page=${pageNum}`;
-
-    console.log("\n" + "=".repeat(60));
-    console.log(`Fetching page ${pageNum}: ${url}`);
-
-    try {
-      await page.goto(url, {
-        waitUntil: "domcontentloaded",
-        timeout: 90000
-      });
-
-      console.log("Waiting for Cloudflare and page to load...");
-      await sleep(8000);
-
-      // Check for Cloudflare
-      let pageContent = await page.content();
-      if (pageContent.includes('Verify you are human') || pageContent.includes('Just a moment')) {
-        console.log("⚠️ Cloudflare on this page. Waiting...");
-        await sleep(20000);
-      }
-
-      // Wait for table
-      try {
-        await page.waitForSelector('table tbody tr, .clickable-row', { timeout: 15000 });
-        console.log("✅ Table loaded");
-      } catch (e) {
-        console.log("⚠️ Table not found, proceeding anyway");
-      }
-
-      await sleep(3000);
-
-      // Extract data
-      const companies = await page.evaluate((currentPage) => {
-        const results = [];
-        const rows = document.querySelectorAll('.clickable-row, table tbody tr, tbody tr');
-
-        console.log(`Found ${rows.length} rows`);
-
-        rows.forEach((row, index) => {
-          const cells = row.querySelectorAll('td');
-
-          if (cells.length >= 3) {
-            const cellTexts = Array.from(cells).map(c => c.innerText?.trim() || '');
-
-            // Skip header rows or empty rows
-            if (cellTexts[0] && !cellTexts[0].includes('ชื่อ') && cellTexts[0].length > 3) {
-              const company = {
-                rowIndex: index + 1,
-                name: cellTexts[0] || '',
-                registrationNumber: cellTexts[1] || '',
-                capital: cellTexts[2] || '',
-                location: cellTexts[3] || '',
-                status: cellTexts[4] || '',
-                year: cellTexts[5] || '',
-                page: currentPage,
-                allCells: cellTexts,
-              };
-
-              const link = row.getAttribute('data-href') || row.querySelector('a')?.href;
-              if (link) {
-                company.url = link.startsWith('http') ? link : `https://www.dataforthai.com${link}`;
-              }
-
-              if (company.name.length > 0) {
-                results.push(company);
-              }
-            }
-          }
-        });
-
-        return results;
-      }, pageNum);
-
-      console.log(`Extracted ${companies.length} companies from page ${pageNum}`);
-
-      if (companies.length > 0) {
-        companies.slice(0, 3).forEach((c, i) => {
-          console.log(`  [${i + 1}] ${c.name} - ${c.capital}`);
-        });
-      } else {
-        console.log("⚠️ No companies extracted!");
-      }
-
-      allCompanies.push(...companies);
-
-      // Save screenshot
-      await page.screenshot({
-        path: path.join(__dirname, `screenshot_page${pageNum}.png`),
-        fullPage: true
-      });
-      console.log(`📸 Screenshot saved`);
-
-      // Save HTML
-      const html = await page.content();
-      fs.writeFileSync(path.join(__dirname, `debug_page${pageNum}.html`), html, "utf-8");
-      console.log(`📄 HTML saved`);
-
-      // Delay
-      const delay = 4000 + Math.random() * 2000;
-      console.log(`Waiting ${Math.round(delay)}ms...`);
-      await sleep(delay);
-
-    } catch (error) {
-      console.error(`Error on page ${pageNum}:`, error.message);
-      try {
-        await page.screenshot({ path: path.join(__dirname, `error_page${pageNum}.png`) });
-      } catch (e) { }
-    }
-  }
-
-  return allCompanies;
-}
-
-async function scrapeCompaniesFromData(data, page) {
-  let _data_log = ''
-  let output_date = []
   for (const record of data) {
     try {
-      console.info(`Running at Row ${record.__rowNum__ + 1}`)
-      let taxId = String(record.Thai_Tax_ID ?? '').replace(/\D/g, '');
+      console.info(`Running at Row ${record.__rowNum__}`)
 
-      if (taxId.length === 12) taxId = '0' + taxId;
-      if (taxId.length !== 13) {
-        console.log("⚠️ Invalid Tax ID, skipping:", taxId);
-        continue;
-      }
+      // Store to Data[record.__rowNum__]
+      if (record.__rowNum__ > 0) {
+        if (record.__rowNum__ >= startIndex && record.__rowNum__ <= endIndex) {
+          data[record.__rowNum__].Account_ID = await AccountID_Reform(record.Account_ID);
+          data[record.__rowNum__].Thai_Tax_ID = await TaxID_Reform(record.Thai_Tax_ID);
+          data[record.__rowNum__].Account_Code = await ReZero_First(record.Account_Code);
+          data[record.__rowNum__].Account_Group = await ReZero_First(record.Account_Group);
 
-      if (data[record.__rowNum__].Phone.toString()[0] != '0' &&
-        data[record.__rowNum__].Phone.toString()[0] != '+' &&
-        data[record.__rowNum__].Phone.toString()[0] != '(') {
-        const url = `${process.env.BASE_URL}/${taxId}`;
-        console.log(`🔎 Opening ${url}`);
+          let _companyPhone = await FindCompany_Phone(page, data[record.__rowNum__].Phone, data[record.__rowNum__].Thai_Tax_ID);
+          if (_companyPhone !== 'N/A')
+            data[record.__rowNum__].Phone = await ReZero_First(_companyPhone);
+          else
+            data[record.__rowNum__].Phone = await ReZero_First(data[record.__rowNum__].Phone);
 
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90000 });
-
-        const passed = await waitForCloudflare(page);
-        if (!passed) {
-          console.log("❌ Cloudflare not passed, skipping");
-          continue;
+          data[record.__rowNum__].Account_Group_Code = await ReZero_First(record.Account_Group_Code); // account_group_code;
+          data[record.__rowNum__].Phone_1 = await ReZero_First(record.Phone_1);
+          data[record.__rowNum__].Office_Phone = await ReZero_First(record.Office_Phone);
+          data[record.__rowNum__].Factory_Phone = await ReZero_First(record.Factory_Phone);
+          await sleep(3000);
         }
-
-        // --- TRIGGER REVEAL ---
-        await page.evaluate(() => {
-          const btns = document.querySelectorAll('button[onclick*="show_contact_click"]');
-          btns.forEach(btn => btn.click());
-        });
-
-        // --- WAIT FOR PHONE PATTERN ---
-        await page.waitForFunction(() => {
-          // Looks for any cell containing at least one digit after the button click
-          const tds = Array.from(document.querySelectorAll('td'));
-          const phoneTd = tds.find(td => td.innerText.trim() === 'โทร');
-          return phoneTd && phoneTd.nextElementSibling && /\d/.test(phoneTd.nextElementSibling.innerText);
-        }, { timeout: 10000 }).catch(() => { });
-
-        const companyData = await page.evaluate(() => {
-          const allTds = Array.from(document.querySelectorAll('td'));
-
-          // NEW: Helper to extract ALL phone numbers found in the target cell
-          const getPhones = () => {
-            const targetLabel = allTds.find(td => td.innerText.trim() === 'โทร');
-            if (!targetLabel || !targetLabel.nextElementSibling) return "N/A";
-
-            const rawText = targetLabel.nextElementSibling.innerText;
-            // Regex to find multiple Thai phone formats: 02-xxx-xxxx, 08x-xxx-xxxx, 0-xxxx-xxxx
-            const phoneRegex = /(0-\d{4}-\d{4}|0\d-\d{4}-\d{4}|0\d{1}-\d{3}-\d{4}|02-\d{3}-\d{4})/g;
-            const matches = rawText.match(phoneRegex);
-
-            return matches ? matches.join(', ') : rawText.trim();
-          };
-
-          const getVal = (label) => {
-            const target = allTds.find(td => td.innerText.trim() === label);
-            return target ? target.nextElementSibling?.innerText.trim() : "N/A";
-          };
-
-          return {
-            phone: getPhones(), // Call the multi-phone extractor
-          };
-        });
-        if (companyData.phone === 'N/A')
-          continue;
-
-        let _data = ''
-        _data_log += _data = `☎️ ${taxId} → ${companyData.phone}\n`
-        console.log(_data);
-
-        // Store to Data[record.__rowNum__]
-        data[record.__rowNum__].Phone = companyData.phone
-
-        // Dump verbose
-        fs.writeFileSync('scraping.log', _data_log, "utf-8")
-        await sleep(3000);
-      } else {
-        console.log("⚠️ Valid phone number, skipping:", taxId);
-        continue;
       }
-
-      await sleep(3000);
     } catch (error) {
       console.error("❌ Error:", error.stack);
     }
   }
-  output_date = data
-  return output_date
+  return data
 }
 
-async function exportToExcel(data, filename) {
+async function exportToExcel(data,, startIndex, endIndex, filename) {
   try {
-    const worksheet = xlsx.utils.json_to_sheet(data);
+    if (!Array.isArray(data)) {
+      throw new Error("Data must be an array of objects");
+    }
+
+    const worksheet = xlsx.utils.json_to_sheet(data.slice(startIndex, endIndex));
     const workbook = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(workbook, worksheet, "Companies");
     xlsx.writeFile(workbook, filename);
     console.log(`✅ Data exported to Excel: ${filename}`);
+
     return true;
   } catch (error) {
     console.error(`❌ Error exporting to Excel: ${error.message}`);
@@ -384,7 +212,7 @@ async function loadFromExcel(filename) {
 
     console.log(`✅ Data loaded from Excel: ${filename}`);
     console.log(`✅ Records: ${data.length}`);
-
+    // fs.close();
     return data;
 
   } catch (error) {
@@ -395,6 +223,99 @@ async function loadFromExcel(filename) {
   }
 }
 
+async function AccountID_Reform(DataRecord) {
+  return String(DataRecord);
+}
+
+async function TaxID_Reform(DataRecord) {
+  let taxId = String(DataRecord ?? '').replace(/\D/g, '');
+
+  if (taxId.length === 12) taxId = '0' + taxId;
+  if (taxId.length !== 13) {
+    console.log("⚠️ Invalid Tax ID, skipping:", taxId);
+  }
+  return taxId;
+}
+
+async function ReZero_First(DataRecord) {
+  try {
+    if (DataRecord.toString()[0] === '-')
+      return '0' + DataRecord.toString(); // DataRecord;
+    else if (DataRecord.toString()[0] !== '0')
+      return '0' + DataRecord.toString();
+    else
+      return DataRecord;
+  } catch {
+    return DataRecord;
+  }
+}
+
+async function FindCompany_Phone(page, DataRecord, Thai_Tax_ID) {
+  if (DataRecord.toString()[0] != '0' &&
+    DataRecord.toString()[0] != '+' &&
+    DataRecord.toString()[0] != '(') {
+    const url = `${base_url}/${Thai_Tax_ID}`;
+    console.log(`🔎 Opening ${url}`);
+
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90000 });
+
+    const passed = await waitForCloudflare(page);
+    if (!passed) {
+      console.log("❌ Cloudflare not passed, skipping");
+    }
+
+    // --- TRIGGER REVEAL ---
+    await page.evaluate(() => {
+      const btns = document.querySelectorAll('button[onclick*="show_contact_click"]');
+      btns.forEach(btn => btn.click());
+    });
+
+    // --- WAIT FOR PHONE PATTERN ---
+    await page.waitForFunction(() => {
+      // Looks for any cell containing at least one digit after the button click
+      const tds = Array.from(document.querySelectorAll('td'));
+      const phoneTd = tds.find(td => td.innerText.trim() === 'โทร');
+      return phoneTd && phoneTd.nextElementSibling && /\d/.test(phoneTd.nextElementSibling.innerText);
+    }, { timeout: 10000 }).catch(() => { });
+
+    const companyData = await page.evaluate(() => {
+      const allTds = Array.from(document.querySelectorAll('td'));
+
+      // NEW: Helper to extract ALL phone numbers found in the target cell
+      const getPhones = () => {
+        const targetLabel = allTds.find(td => td.innerText.trim() === 'โทร');
+        if (!targetLabel || !targetLabel.nextElementSibling) return "N/A";
+
+        const rawText = targetLabel.nextElementSibling.innerText;
+        // Regex to find multiple Thai phone formats: 02-xxx-xxxx, 08x-xxx-xxxx, 0-xxxx-xxxx
+        const phoneRegex = /(0-\d{4}-\d{4}|0\d-\d{4}-\d{4}|0\d{1}-\d{3}-\d{4}|02-\d{3}-\d{4})/g;
+        const matches = rawText.match(phoneRegex);
+
+        return matches ? matches.join(', ') : rawText.trim();
+      };
+
+      const getVal = (label) => {
+        const target = allTds.find(td => td.innerText.trim() === label);
+        return target ? target.nextElementSibling?.innerText.trim() : "N/A";
+      };
+
+      return {
+        phone: getPhones(), // Call the multi-phone extractor
+      };
+    });
+    // if (companyData.phone === 'N/A') { }
+
+    let _data = `☎️ ${Thai_Tax_ID} → ${companyData.phone}\n`
+    console.log(_data);
+
+    await sleep(3000);
+    return companyData.phone;
+  } else {
+    console.log("⚠️ Valid phone number, skipping:", Thai_Tax_ID);
+    return "-";
+  }
+}
+
 // ===== MAIN EXECUTION =====
 async function main() {
   console.log("DataForThai Scraper with Stealth Plugin");
@@ -402,7 +323,6 @@ async function main() {
 
   // Load data from Excel
   const excelData = await loadFromExcel(process.env.EXCEL_FILENAME);
-  fs.writeFileSync("zoho-excel.json", JSON.stringify(excelData, null, 2), "utf-8");
 
   if (excelData.length > 0) {
     console.log(`Loaded ${excelData.length} records from Excel.`);
@@ -437,15 +357,12 @@ async function main() {
     }
 
     await sleep(3000);
-
     console.log("\nStarting to scrape companies...");
-    const companies = await scrapeCompaniesFromData(excelData, page);
-
-
-    const filename = `zoho-crm-${guid.toString()}.csv`
-
-    const exported_status = await exportToExcel(companies, filename)
     
+    const companies = await scrapeCompaniesFromData(excelData, start_index, end_index, page);
+    const filename = process.env.SAVE_FILENAME;
+    const exported_status = await exportToExcel(companies, start_index, end_index, filename);
+
     if (exported_status) {
       console.log(`✅ Scraping complete!`);
       console.log(`Saved to: ${filename}`);
