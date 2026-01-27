@@ -1,0 +1,1 @@
+npm install playwright-extra puppeteer-extra-plugin-stealth axios cheerio tough-cookie axios-cookiejar-support playwright cheerio bottleneck pino dotenv
